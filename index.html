@@ -9,8 +9,8 @@
 </head>
 <body>
     <div class="search-container">
-        <input type="text" id="searchInput" placeholder="Search for artist or album...">
-        <button id="searchButton">Search</button>
+        <input type="text" id="searchInput" placeholder="Search for artist or album..." disabled>
+        <button id="searchButton" disabled>Loading Python Environment...</button>
     </div>
     <div id="results"></div>
     <div id="poster" class="poster" style="display: none;"></div>
@@ -18,21 +18,17 @@
     <script type="text/javascript">
         let pyodideInstance = null;
 
-        async function loadPyodideAndPackages() {
+        async function main() {
             try {
-                // Show loading message
-                document.getElementById('results').innerHTML = 'Loading Python environment...';
-
-                // Load Pyodide
                 pyodideInstance = await loadPyodide();
                 await pyodideInstance.loadPackage("micropip");
                 const micropip = pyodideInstance.pyimport("micropip");
                 await micropip.install('requests');
 
-                // Initialize our Python code
                 await pyodideInstance.runPythonAsync(`
 import json
 import requests
+from urllib.parse import quote
 
 class MusicBrainzClient:
     def __init__(self):
@@ -43,16 +39,18 @@ class MusicBrainzClient:
         }
 
     def search_releases(self, query):
-        params = {
-            'query': query,
-            'fmt': 'json'
-        }
         try:
             url = f"{self.mb_api}/release"
+            params = {
+                'query': query,
+                'fmt': 'json'
+            }
             response = requests.get(url, params=params, headers=self.headers)
+            response.raise_for_status()
             return response.json()
         except Exception as e:
-            return {"error": str(e)}
+            print(f"Error searching releases: {str(e)}")
+            return {"releases": []}
 
     def get_cover_art(self, mbid):
         try:
@@ -62,6 +60,7 @@ class MusicBrainzClient:
                 return None
             return response.json()
         except Exception as e:
+            print(f"Error getting cover art: {str(e)}")
             return None
 
 client = MusicBrainzClient()
@@ -73,23 +72,21 @@ def get_artwork(mbid):
     return client.get_cover_art(mbid)
                 `);
 
-                // Clear loading message
-                document.getElementById('results').innerHTML = '';
+                // Enable UI elements
+                document.getElementById('searchInput').disabled = false;
+                document.getElementById('searchButton').disabled = false;
+                document.getElementById('searchButton').textContent = 'Search';
 
-                // Enable search functionality
-                setupEventListeners();
+                // Add event listeners
+                document.getElementById('searchButton').addEventListener('click', handleSearch);
+                document.getElementById('searchInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') handleSearch();
+                });
 
             } catch (error) {
-                console.error('Error loading Pyodide:', error);
-                document.getElementById('results').innerHTML = 'Error loading Python environment. Please refresh the page.';
+                console.error('Error initializing:', error);
+                document.getElementById('searchButton').textContent = 'Error loading Python environment';
             }
-        }
-
-        function setupEventListeners() {
-            document.getElementById('searchButton').addEventListener('click', handleSearch);
-            document.getElementById('searchInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') handleSearch();
-            });
         }
 
         async function handleSearch() {
@@ -103,7 +100,9 @@ def get_artwork(mbid):
             resultsDiv.innerHTML = 'Searching...';
 
             try {
-                const results = await pyodideInstance.runPythonAsync(`search_albums("${query}")`);
+                const results = await pyodideInstance.runPythonAsync(`
+search_albums(${JSON.stringify(query)})
+                `);
                 displayResults(results);
             } catch (error) {
                 console.error('Search error:', error);
@@ -156,8 +155,8 @@ def get_artwork(mbid):
             });
         }
 
-        // Start loading Pyodide when the page loads
-        loadPyodideAndPackages();
+        // Start initialization when page loads
+        window.addEventListener('load', main);
     </script>
 </body>
 </html>
