@@ -1,0 +1,117 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Album Poster Generator</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .search-container {
+            margin-bottom: 20px;
+        }
+        #searchInput {
+            padding: 10px;
+            width: 300px;
+        }
+        #searchButton {
+            padding: 10px 20px;
+        }
+        .poster {
+            width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+            background: #f5f5f5;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        .album-cover {
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+            display: block;
+        }
+        .album-info {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .track-list {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="search-container">
+        <input type="text" id="searchInput" placeholder="Search for artist or album...">
+        <button id="searchButton">Search</button>
+    </div>
+    <div id="results"></div>
+    <div id="poster" class="poster" style="display: none;"></div>
+
+    <script type="text/javascript">
+        async function initPyodide() {
+            let pyodide = await loadPyodide();
+            await pyodide.loadPackage("micropip");
+            const micropip = pyodide.pyimport("micropip");
+            await micropip.install('requests');
+
+            // Python code for API interaction and poster generation
+            await pyodide.runPythonAsync(`
+import json
+import requests
+
+class AlbumPosterGenerator:
+    def __init__(self):
+        self.api_base = "https://api.song.link/v1-alpha.1"
+
+    def search(self, query):
+        # Note: This is a simplified example. The actual API endpoint might be different
+        response = requests.get(f"{self.api_base}/search", params={"q": query})
+        return response.json()
+
+    def generate_poster(self, album_data):
+        html = f"""
+            <img class="album-cover" src="{album_data['artwork_url']}" alt="Album Cover">
+            <div class="album-info">
+                <h1>{album_data['artist']}</h1>
+                <h2>{album_data['album']}</h2>
+            </div>
+            <div class="track-list">
+                <h3>Track List:</h3>
+                <ol>
+                    {''.join(f'<li>{track}</li>' for track in album_data['tracks'])}
+                </ol>
+            </div>
+        """
+        return html
+
+generator = AlbumPosterGenerator()
+
+def search_albums(query):
+    return generator.search(query)
+
+def create_poster(album_data):
+    return generator.generate_poster(album_data)
+            `);
+
+            // Event listeners
+            document.getElementById('searchButton').addEventListener('click', async () => {
+                const query = document.getElementById('searchInput').value;
+                const results = await pyodide.runPythonAsync(`search_albums("${query}")`);
+                displayResults(results);
+            });
+        }
+
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            // Display results and handle selection
+            // Implementation depends on the actual API response structure
+        }
+
+        initPyodide();
+    </script>
+</body>
+</html>
