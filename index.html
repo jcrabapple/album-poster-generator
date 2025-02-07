@@ -10,29 +10,41 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
+            background: #f0f0f0;
         }
         .search-container {
             margin-bottom: 20px;
+            text-align: center;
         }
         #searchInput {
             padding: 10px;
             width: 300px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
         }
         #searchButton {
             padding: 10px 20px;
+            background: #1db954;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
         }
         .poster {
             width: 800px;
             margin: 0 auto;
             padding: 40px;
-            background: #f5f5f5;
+            background: white;
             box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            border-radius: 8px;
         }
         .album-cover {
             width: 100%;
             max-width: 500px;
             margin: 0 auto;
             display: block;
+            border-radius: 4px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
         .album-info {
             text-align: center;
@@ -40,6 +52,25 @@
         }
         .track-list {
             margin: 20px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        #results {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .result-card {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .result-card:hover {
+            transform: translateY(-2px);
         }
     </style>
 </head>
@@ -58,45 +89,64 @@
             const micropip = pyodide.pyimport("micropip");
             await micropip.install('requests');
 
-            // Python code for API interaction and poster generation
-            const CORS_PROXY = "https://cors-anywhere.herokuapp.com/";
-            
             await pyodide.runPythonAsync(`
 import json
 import requests
 
-class AlbumPosterGenerator:
+class MusicBrainzPoster:
     def __init__(self):
-        self.api_base = "${CORS_PROXY}https://api.song.link/v1-alpha.1"
+        self.mb_api = "https://musicbrainz.org/ws/2"
+        self.caa_api = "https://coverartarchive.org"
+        self.headers = {
+            'User-Agent': 'AlbumPosterGenerator/1.0 (your@email.com)'
+        }
 
-    def search(self, query):
-        # Note: This is a simplified example. The actual API endpoint might be different
-        response = requests.get(f"{self.api_base}/search", params={"q": query})
+    def search_release(self, query):
+        params = {
+            'query': query,
+            'fmt': 'json'
+        }
+        response = requests.get(f"{self.mb_api}/release", 
+                              params=params, 
+                              headers=self.headers)
         return response.json()
 
-    def generate_poster(self, album_data):
+    def get_cover_art(self, mbid):
+        try:
+            response = requests.get(f"{self.caa_api}/release/{mbid}",
+                                  headers=self.headers)
+            return response.json()
+        except:
+            return None
+
+    def generate_poster_html(self, release_data, cover_art_data):
+        if not cover_art_data or 'images' not in cover_art_data:
+            return None
+
+        front_image = next((img for img in cover_art_data['images'] 
+                          if img.get('front', False)), None)
+        if not front_image:
+            return None
+
         html = f"""
-            <img class="album-cover" src="{album_data['artwork_url']}" alt="Album Cover">
+            <img class="album-cover" src="{front_image['image']}" alt="Album Cover">
             <div class="album-info">
-                <h1>{album_data['artist']}</h1>
-                <h2>{album_data['album']}</h2>
-            </div>
-            <div class="track-list">
-                <h3>Track List:</h3>
-                <ol>
-                    {''.join(f'<li>{track}</li>' for track in album_data['tracks'])}
-                </ol>
+                <h1>{release_data['title']}</h1>
+                <h2>{release_data['artist-credit'][0]['name']}</h2>
             </div>
         """
         return html
 
-generator = AlbumPosterGenerator()
+generator = MusicBrainzPoster()
 
 def search_albums(query):
-    return generator.search(query)
+    return generator.search_release(query)
 
-def create_poster(album_data):
-    return generator.generate_poster(album_data)
+def get_artwork(mbid):
+    return generator.get_cover_art(mbid)
+
+def create_poster(release_data, cover_art_data):
+    return generator.generate_poster_html(release_data, cover_art_data)
             `);
 
             // Event listeners
@@ -109,8 +159,27 @@ def create_poster(album_data):
 
         function displayResults(results) {
             const resultsDiv = document.getElementById('results');
-            // Display results and handle selection
-            // Implementation depends on the actual API response structure
+            resultsDiv.innerHTML = '';
+
+            results.releases.forEach(release => {
+                const card = document.createElement('div');
+                card.className = 'result-card';
+                card.innerHTML = `
+                    <h3>${release.title}</h3>
+                    <p>${release['artist-credit'][0].name}</p>
+                    <p>${release.date || 'No date'}</p>
+                `;
+                card.onclick = async () => {
+                    const coverArt = await pyodide.runPythonAsync(`get_artwork("${release.id}")`);
+                    const poster = await pyodide.runPythonAsync(`create_poster(${JSON.stringify(release)}, ${JSON.stringify(coverArt)})`);
+                    if (poster) {
+                        const posterDiv = document.getElementById('poster');
+                        posterDiv.innerHTML = poster;
+                        posterDiv.style.display = 'block';
+                    }
+                };
+                resultsDiv.appendChild(card);
+            });
         }
 
         initPyodide();
