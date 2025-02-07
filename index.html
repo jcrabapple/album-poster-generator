@@ -4,7 +4,7 @@
     <title>Album Poster Generator</title>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
     <style>
-        /* ... previous styles remain the same ... */
+        /* Previous styles remain the same */
     </style>
 </head>
 <body>
@@ -16,16 +16,23 @@
     <div id="poster" class="poster" style="display: none;"></div>
 
     <script type="text/javascript">
-        async function initPyodide() {
-            let pyodide = await loadPyodide();
-            await pyodide.loadPackage("micropip");
-            const micropip = pyodide.pyimport("micropip");
-            await micropip.install('requests');
+        let pyodideInstance = null;
 
-            await pyodide.runPythonAsync(`
+        async function loadPyodideAndPackages() {
+            try {
+                // Show loading message
+                document.getElementById('results').innerHTML = 'Loading Python environment...';
+
+                // Load Pyodide
+                pyodideInstance = await loadPyodide();
+                await pyodideInstance.loadPackage("micropip");
+                const micropip = pyodideInstance.pyimport("micropip");
+                await micropip.install('requests');
+
+                // Initialize our Python code
+                await pyodideInstance.runPythonAsync(`
 import json
 import requests
-from urllib.parse import quote
 
 class MusicBrainzClient:
     def __init__(self):
@@ -41,21 +48,16 @@ class MusicBrainzClient:
             'fmt': 'json'
         }
         try:
-            response = requests.get(
-                f"{self.mb_api}/release",
-                params=params,
-                headers=self.headers
-            )
+            url = f"{self.mb_api}/release"
+            response = requests.get(url, params=params, headers=self.headers)
             return response.json()
         except Exception as e:
             return {"error": str(e)}
 
     def get_cover_art(self, mbid):
         try:
-            response = requests.get(
-                f"{self.caa_api}/release/{mbid}",
-                headers=self.headers
-            )
+            url = f"{self.caa_api}/release/{mbid}"
+            response = requests.get(url, headers=self.headers)
             if response.status_code == 404:
                 return None
             return response.json()
@@ -69,8 +71,21 @@ def search_albums(query):
 
 def get_artwork(mbid):
     return client.get_cover_art(mbid)
-            `);
+                `);
 
+                // Clear loading message
+                document.getElementById('results').innerHTML = '';
+
+                // Enable search functionality
+                setupEventListeners();
+
+            } catch (error) {
+                console.error('Error loading Pyodide:', error);
+                document.getElementById('results').innerHTML = 'Error loading Python environment. Please refresh the page.';
+            }
+        }
+
+        function setupEventListeners() {
             document.getElementById('searchButton').addEventListener('click', handleSearch);
             document.getElementById('searchInput').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') handleSearch();
@@ -78,16 +93,21 @@ def get_artwork(mbid):
         }
 
         async function handleSearch() {
+            if (!pyodideInstance) {
+                alert('Python environment is not ready. Please wait or refresh the page.');
+                return;
+            }
+
             const query = document.getElementById('searchInput').value;
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = '<p>Searching...</p>';
+            resultsDiv.innerHTML = 'Searching...';
 
             try {
-                const results = await pyodide.runPythonAsync(`search_albums("${query}")`);
+                const results = await pyodideInstance.runPythonAsync(`search_albums("${query}")`);
                 displayResults(results);
             } catch (error) {
-                resultsDiv.innerHTML = '<p>Error performing search. Please try again.</p>';
-                console.error(error);
+                console.error('Search error:', error);
+                resultsDiv.innerHTML = 'Error performing search. Please try again.';
             }
         }
 
@@ -110,7 +130,7 @@ def get_artwork(mbid):
                 `;
                 card.onclick = async () => {
                     try {
-                        const coverArt = await pyodide.runPythonAsync(`get_artwork("${release.id}")`);
+                        const coverArt = await pyodideInstance.runPythonAsync(`get_artwork("${release.id}")`);
                         if (coverArt && coverArt.images && coverArt.images.length > 0) {
                             const posterDiv = document.getElementById('poster');
                             const frontImage = coverArt.images.find(img => img.front) || coverArt.images[0];
@@ -136,7 +156,8 @@ def get_artwork(mbid):
             });
         }
 
-        initPyodide();
+        // Start loading Pyodide when the page loads
+        loadPyodideAndPackages();
     </script>
 </body>
 </html>
