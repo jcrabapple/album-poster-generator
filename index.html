@@ -59,13 +59,15 @@
             await micropip.install('requests');
 
             // Python code for API interaction and poster generation
+            const CORS_PROXY = "https://cors-anywhere.herokuapp.com/";
+            
             await pyodide.runPythonAsync(`
 import json
 import requests
 
 class AlbumPosterGenerator:
     def __init__(self):
-        self.api_base = "https://api.song.link/v1-alpha.1"
+        self.api_base = "${CORS_PROXY}https://api.song.link/v1-alpha.1"
 
     def search(self, query):
         # Note: This is a simplified example. The actual API endpoint might be different
